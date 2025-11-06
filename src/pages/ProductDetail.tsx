@@ -43,6 +43,64 @@ export default function ProductDetail() {
     },
   });
 
+  // Check if product is in wishlist
+  const { data: isInWishlist } = useQuery({
+    queryKey: ['wishlist-status', id, user?.id],
+    queryFn: async () => {
+      if (!user) return false;
+      const { data } = await supabase
+        .from('wishlist')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('product_id', id)
+        .single();
+      return !!data;
+    },
+    enabled: !!user && !!id,
+  });
+
+  // Toggle wishlist mutation
+  const toggleWishlistMutation = useMutation({
+    mutationFn: async () => {
+      if (!user) throw new Error('Please login to add to wishlist');
+
+      if (isInWishlist) {
+        // Remove from wishlist
+        const { error } = await supabase
+          .from('wishlist')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('product_id', id!);
+        if (error) throw error;
+      } else {
+        // Add to wishlist
+        const { error } = await supabase
+          .from('wishlist')
+          .insert({
+            user_id: user.id,
+            product_id: id!,
+          });
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      toast.success(isInWishlist ? 'Removed from wishlist' : 'Added to wishlist');
+      queryClient.invalidateQueries({ queryKey: ['wishlist-status', id, user?.id] });
+      queryClient.invalidateQueries({ queryKey: ['wishlist', user?.id] });
+    },
+    onError: (error: any) => {
+      toast.error(error.message);
+    },
+  });
+
+  const handleWishlistClick = () => {
+    if (!user) {
+      navigate('/auth');
+      return;
+    }
+    toggleWishlistMutation.mutate();
+  };
+
   const { data: reviews } = useQuery({
     queryKey: ['reviews', id],
     queryFn: async () => {
@@ -197,7 +255,7 @@ export default function ProductDetail() {
                 <span className="text-4xl font-bold text-primary">
                   ₹{effectivePrice.toFixed(2)}
                 </span>
-                <span className="text-lg text-muted-foreground">/litre</span>
+                <span className="text-lg text-muted-foreground">/KG</span>
               </div>
 
               {hasDiscount && (
@@ -211,14 +269,14 @@ export default function ProductDetail() {
               <p className="text-sm mt-2">
                 <span className="font-semibold">Stock:</span>{' '}
                 {product.stock_quantity > 0
-                  ? `${product.stock_quantity} litres available`
+                  ? `${product.stock_quantity} KG available`
                   : 'Out of stock'}
               </p>
             </div>
 
             <div className="space-y-4">
               <div className="flex items-center gap-4">
-                <span className="font-semibold">Quantity (litres):</span>
+                <span className="font-semibold">Quantity (KG):</span>
                 <div className="flex items-center gap-2">
                   <Button
                     variant="outline"
@@ -254,8 +312,13 @@ export default function ProductDetail() {
                   <ShoppingCart className="mr-2 h-5 w-5" />
                   Add to Cart
                 </Button>
-                <Button variant="outline" size="lg">
-                  <Heart className="h-5 w-5" />
+                <Button 
+                  variant="outline" 
+                  size="lg"
+                  onClick={handleWishlistClick}
+                  disabled={toggleWishlistMutation.isPending}
+                >
+                  <Heart className={`h-5 w-5 ${isInWishlist ? 'fill-red-500 text-red-500' : ''}`} />
                 </Button>
               </div>
 
